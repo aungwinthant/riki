@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "riki"
+version = "0.1.0"
+description = "Autonomous API Contract-Testing System"
+requires-python = ">=3.9"
+dependencies = [
+    "langgraph",
+    "openapi-core",
+    "pydantic>=2.0",
+    "httpx",
+    "pyyaml",
+]
+
+[project.scripts]
+riki = "riki.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

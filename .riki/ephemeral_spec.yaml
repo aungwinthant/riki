@@ -1,0 +1,48 @@
+openapi: 3.0.3
+info:
+  title: Ephemeral Spec (Code-Generated)
+  version: 0.1.0
+  description: Auto-generated OpenAPI specification produced by riki scanner from
+    source-code route patterns. This is a minimal spec; response schemas are placeholders.
+paths:
+  /path:
+    get:
+      summary: GET /path
+      operationId: get_path
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    post:
+      summary: POST /path
+      operationId: post_path
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    put:
+      summary: PUT /path
+      operationId: put_path
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object
+    delete:
+      summary: DELETE /path
+      operationId: delete_path
+      responses:
+        '200':
+          description: Successful response
+          content:
+            application/json:
+              schema:
+                type: object

@@ -14,6 +14,12 @@ from .models import (
     TestState,
 )
 from .reasoning.classifier import classify, ViolationType
+from .reasoning.flow import (
+    execute_auth_flow,
+    extract_token_from_response,
+    find_auth_flow,
+    build_bearer_scheme,
+)
 from .reasoning.healer import heal as heal_payload_via_classifier
 from .tools import (
     build_request_schema,
@@ -53,6 +59,21 @@ def plan_sequence(state: TestState) -> Dict[str, Any]:
         if a.type not in seen_types:
             seen_types.add(a.type)
             merged_auth.append(a.model_dump())
+
+    # Phase 1.1: Auth flow — proactively exchange basic creds for bearer token
+    auth_objs = [AuthScheme(**a) for a in merged_auth]
+    login_key = find_auth_flow(endpoints, auth_objs)
+    if login_key:
+        basic_auth = next((a for a in auth_objs if a.type == "basic" and a.username), None)
+        if basic_auth:
+            token_response = execute_auth_flow(s.base_url, login_key, basic_auth)
+            if token_response:
+                token = extract_token_from_response(token_response)
+                if token:
+                    bearer = build_bearer_scheme(token)
+                    merged_auth = [a for a in merged_auth if a.get("type") != "bearer"]
+                    merged_auth.append(bearer.model_dump())
+                    planner.ordered_keys = [k for k in planner.ordered_keys if k != login_key]
 
     return {
         "raw_spec": raw,
@@ -190,18 +211,10 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
     # Phase 1.3: Schema override — if response is array but spec says object,
     # patch the spec and flag it. Never silent.
     schema_override = None
-    overridable_violations = [
-        v for v in schema_violations
-        if "type" in v.message.lower() and "array" in v.message.lower()
-    ]
-    if overridable_violations and log.response_status in (200, 201):
+    if schema_violations and isinstance(log.response_body, list) and log.response_status in (200, 201):
         schema_override = _patch_array_schema(s.raw_spec, method, path, log.response_body)
         if schema_override:
-            filtered = [
-                v for v in schema_violations
-                if v not in overridable_violations
-            ]
-            schema_violations = filtered
+            schema_violations = []
 
     # Phase 2: Classify each violation
     for v in log.violations:

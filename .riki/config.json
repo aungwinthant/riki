@@ -1,0 +1,15 @@
+{
+  "base_url": "http://localhost:3000",
+  "spec_path": "/Users/apple/Documents/Projects/test_proj/backend-test/.riki/ephemeral_spec.yaml",
+  "auth": [
+    {
+      "type": "basic",
+      "username": "admin",
+      "password": "secret123"
+    },
+    {
+      "type": "bearer",
+      "token": "tok-xyz"
+    }
+  ]
+}

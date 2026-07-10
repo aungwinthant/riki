@@ -252,16 +252,19 @@ def generate_payload(
     return PayloadTemplate(body=body, query=query, path_params=path_params)
 
 
+_ID_KEYS = {"id", "ID", "Id", "user_id", "userId", "resource_id"}
+
+
 def _resolve_path_params_from_memory(
     path_params: Dict[str, Any], memory: Dict[str, Any], endpoint_key: str
 ) -> Dict[str, Any]:
     resource = endpoint_key.split(":")[-1].strip("/").split("/")[0] if ":" in endpoint_key else ""
     for key in list(path_params.keys()):
         memory_val = memory.get(key)
-        if memory_val is None:
-            memory_val = memory.get("id")
         if memory_val is None and resource:
             memory_val = memory.get(f"{resource}_{key}")
+        if memory_val is None and key in _ID_KEYS:
+            memory_val = memory.get("id")
         if memory_val is not None:
             path_params[key] = str(memory_val)
     return path_params
@@ -507,7 +510,7 @@ def _extract_id_fields(
 ) -> Dict[str, Any]:
     """Extract id-like fields from a dict, optionally with a prefix."""
     extracted: Dict[str, Any] = {}
-    id_fields = ["id", "ID", "Id", "resource_id", "userId", "user_id", "token", "slug"]
+    id_fields = ["id", "ID", "Id", "resource_id", "userId", "user_id", "token", "slug", "username"]
 
     for field in id_fields:
         val = obj.get(field)

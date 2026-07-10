@@ -14,6 +14,7 @@ from .models import (
     TestState,
 )
 from .reasoning.classifier import classify, ViolationType
+from .reasoning.diagnostician import diagnose_all
 from .reasoning.flow import (
     execute_auth_flow,
     extract_token_from_response,
@@ -227,6 +228,12 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
             vtype = classify(log, v, s.endpoints)
             v.violation_type = vtype.value
 
+    # Phase 4: Diagnostician — analyze UNKNOWN violations
+    unknown_violations = [v for v in log.violations if v.violation_type == ViolationType.UNKNOWN.value]
+    new_diagnoses = diagnose_all(log, unknown_violations, s.endpoints)
+    merged_diagnoses = list(getattr(s, "diagnoses", []))
+    merged_diagnoses.extend(new_diagnoses)
+
     merged_spec_overrides = dict(getattr(s, "spec_overrides", {}))
     if schema_override:
         override_key = f"{method}:{path}"
@@ -254,12 +261,24 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
         merged_log = list(s.reasoning_log)
         merged_log.append(reasoning_step)
 
+        if new_diagnoses:
+            diag_step = {
+                "step": len(merged_log) + 1,
+                "endpoint": current_key,
+                "action": "diagnosed",
+                "observation": f"{len(new_diagnoses)} UNKNOWN violation(s) analyzed",
+                "decision": new_diagnoses[0].action,
+                "explanation": new_diagnoses[0].reason,
+            }
+            merged_log.append(diag_step)
+
         return {
             "results": merged_results,
             "violations": [v.model_dump() for v in schema_violations],
             "current_endpoint": current_key,
             "spec_overrides": merged_spec_overrides,
             "reasoning_log": merged_log,
+            "diagnoses": [d.model_dump() for d in merged_diagnoses],
         }
     else:
         log.status = "PASS"
@@ -272,6 +291,7 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
             "memory": updated_memory,
             "current_endpoint": current_key,
             "spec_overrides": merged_spec_overrides if schema_override else {},
+            "diagnoses": [d.model_dump() for d in merged_diagnoses],
         }
 
 

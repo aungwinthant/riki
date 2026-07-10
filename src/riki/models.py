@@ -89,6 +89,10 @@ class TestState(BaseModel):
         default_factory=dict,
         description="Runtime spec patches from response introspection (e.g. object→array)",
     )
+    diagnoses: List[Diagnosis] = Field(
+        default_factory=list,
+        description="Diagnostician outputs for UNKNOWN violations",
+    )
     reasoning_log: List[Dict[str, Any]] = Field(
         default_factory=list,
         description="Audit trail of agent decisions and observations",
@@ -119,6 +123,14 @@ class AuthScheme(BaseModel):
             if self.key_in == "header":
                 headers[self.key_name] = self.key
         return headers
+
+
+class Diagnosis(BaseModel):
+    endpoint: str
+    method: str
+    action: str  # "skip" | "flag_as_bug" | "suggest_spec_fix"
+    reason: str
+    violation_type: str = "unknown"
 
 
 class PlannerOutput(BaseModel):

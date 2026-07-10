@@ -131,7 +131,7 @@ ROUTE_PATTERNS: Dict[str, List[Dict[str, Any]]] = {
         {
             # Express/Fastify: router.get("/path", handler)
             "pattern": re.compile(
-                r"""\.(get|post|put|patch|delete|head|options)\s*\(\s*["\`](/[^"\`]*)["\`]"""
+                r"""\.(get|post|put|patch|delete|head|options)\s*\(\s*['"\`](/[^'"\`]*)['"\`]"""
             ),
             "method_group": 1,
             "path_group": 2,

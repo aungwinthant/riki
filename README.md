@@ -81,6 +81,16 @@ src/
     └── sample_spec.yaml    # Pet Store OpenAPI 3.0 spec
 ```
 
+## Updating
+
+```bash
+# If installed from GitHub
+pip install --upgrade git+https://github.com/aungwinthant/riki.git
+
+# If installed from a local clone
+git pull && pip install -e .
+```
+
 ## Requirements
 
 - Python 3.9+

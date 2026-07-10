@@ -11,6 +11,9 @@ Changelog entries are tied to Git tags. Each tagged release publishes the accumu
 
 ## [Unreleased]
 
+### Fixed
+- Express route regex now matches single-quoted path strings (e.g. `router.get('/path', handler)`)
+
 ### Added
 - Initial project scaffold: `models.py`, `tools.py`, `graph.py`, `main.py`
 - LangGraph cyclic state machine with `plan_sequence`, `generate_payload`, `execute_request`, `validate_contract`, `heal_payload`, and `advance_queue` nodes

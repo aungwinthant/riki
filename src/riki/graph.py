@@ -124,6 +124,35 @@ async def execute_request(state: TestState) -> Dict[str, Any]:
     return {"results": merged_results, "current_endpoint": current_key}
 
 
+def _patch_array_schema(
+    raw_spec: Dict[str, Any], method: str, path: str, response_body: Any
+) -> Optional[Dict[str, Any]]:
+    """If spec says type:object but response is a list, patch the schema.
+
+    Returns the override dict if applied, None otherwise.
+    The override MUST be reported — never applied silently.
+    """
+    if not isinstance(response_body, list):
+        return None
+    paths = raw_spec.get("paths", {})
+    methods = paths.get(path, {})
+    details = methods.get(method.lower(), {})
+    resp = details.get("responses", {}).get("200", {})
+    content = resp.get("content", {})
+    schema = content.get("application/json", {}).get("schema", {})
+    if schema.get("type") == "array":
+        return None
+    override = {"type": "array", "items": {"type": "object"}}
+    if "paths" not in raw_spec:
+        return override
+    if path not in raw_spec["paths"]:
+        raw_spec["paths"][path] = {}
+    if method.lower() not in raw_spec["paths"][path]:
+        raw_spec["paths"][path][method.lower()] = {}
+    resp_path = raw_spec["paths"][path][method.lower()].setdefault("responses", {}).setdefault("200", {}).setdefault("content", {}).setdefault("application/json", {}).setdefault("schema", override)
+    return override
+
+
 def validate_contract(state: TestState) -> Dict[str, Any]:
     s = _ensure_state(state) if isinstance(state, dict) else state
     current_key = s.current_endpoint
@@ -156,7 +185,33 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
         {"content-type": "application/json"},
         log.response_body,
     )
+
+    # Phase 1.3: Schema override — if response is array but spec says object,
+    # patch the spec and flag it. Never silent.
+    schema_override = None
+    overridable_violations = [
+        v for v in schema_violations
+        if "type" in v.message.lower() and "array" in v.message.lower()
+    ]
+    if overridable_violations and log.response_status in (200, 201):
+        schema_override = _patch_array_schema(s.raw_spec, method, path, log.response_body)
+        if schema_override:
+            filtered = [
+                v for v in schema_violations
+                if v not in overridable_violations
+            ]
+            schema_violations = filtered
+
     log.violations.extend(schema_violations)
+
+    merged_spec_overrides = dict(getattr(s, "spec_overrides", {}))
+    if schema_override:
+        override_key = f"{method}:{path}"
+        merged_spec_overrides[override_key] = {
+            "field": "responses.200.content.application/json.schema",
+            "from_type": "object",
+            "to_type": "array",
+        }
 
     merged_results = dict(s.results)
     if log.violations:
@@ -168,17 +223,19 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
             "results": merged_results,
             "violations": [v.model_dump() for v in schema_violations],
             "current_endpoint": current_key,
+            "spec_overrides": merged_spec_overrides,
         }
     else:
         log.status = "PASS"
         updated_memory = extract_memory_variables(
-            log.response_body, {}, s.memory
+            log.response_body, {}, s.memory, path=path
         )
         merged_results[current_key] = log.model_dump()
         return {
             "results": merged_results,
             "memory": updated_memory,
             "current_endpoint": current_key,
+            "spec_overrides": merged_spec_overrides if schema_override else {},
         }
 
 

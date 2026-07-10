@@ -16,6 +16,18 @@ Graph (LangGraph cyclic state machine):
                                                          heal_payload
                                                               ↓
                                                          advance_queue → (loop)
+
+Supervisor pattern (in-progress):
+                    ┌───────────────┐
+                    │   Supervisor   │  (planner — owns queue, delegates)
+                    └───────┬───────┘
+              ┌─────────────┼─────────────┬──────────────┐
+              ▼             ▼             ▼              ▼
+        ┌──────────┐  ┌───────────┐ ┌─────────────┐ ┌──────────┐
+        │ Executor │  │Classifier │ │Diagnostician│ │ Reporter │
+        │(det.)    │  │(det.)     │ │(LLM, opt-in)│ │(det.)    │
+        └──────────┘  └───────────┘ └─────────────┘ └──────────┘
+Diagnostician is only invoked when Classifier returns UNKNOWN.
 ```
 
 ## Key Files
@@ -23,11 +35,15 @@ Graph (LangGraph cyclic state machine):
 | File | What |
 |------|------|
 | `src/riki/cli/main.py` | Click-based CLI entrypoint: `init`, `test`, `report` commands |
-| `src/riki/scanner/scanner.py` | Repo scanner: finds OpenAPI specs by name/content; scans source code for routes (FastAPI, Gin, Express, etc.) |
-| `src/riki/models.py` | `TestState`, `ContractViolation`, `ExecutionLog`, `Endpoint`, `PayloadTemplate` |
-| `src/riki/tools.py` | Spec loader, endpoint extractor, topological sort, payload gen (deterministic), httpx executor, openapi-core validator, memory variable extractor |
+| `src/riki/scanner/scanner.py` | Repo scanner: finds OpenAPI specs by name/content; scans source code for routes (FastAPI, Gin, Express, etc.) with mount prefix detection |
+| `src/riki/models.py` | `TestState`, `ContractViolation`, `ExecutionLog`, `Endpoint`, `PayloadTemplate`, `AuthScheme` |
+| `src/riki/tools.py` | Spec loader, endpoint extractor, topological sort, payload gen, httpx executor, openapi-core validator, memory variable extractor |
 | `src/riki/graph.py` | 6 LangGraph nodes, conditional edges (retry/abort routing), compiled `StateGraph` |
+| `src/riki/reasoning/flow.py` | Auth flow detection: login endpoint discovery, token extraction, bearer scheme builder |
+| `src/riki/reasoning/classifier.py` | Violation type classifier: `AUTH_DEPENDENT`, `MISSING_RESOURCE`, `SCHEMA_ERROR`, `VALIDATION_ERROR`, `UNKNOWN` |
+| `src/riki/reasoning/healer.py` | Deterministic payload healer: truncation, range clamping per error message |
 | `src/riki/main.py` | Legacy CLI entrypoint (argparse), Markdown/JSON report generator |
+| `src/riki/mock_server.py` | Test mock server with `/pets` and `/users` CRUD, configurable auth modes |
 
 ## Running
 
@@ -35,20 +51,24 @@ Graph (LangGraph cyclic state machine):
 riki init                    # scan repo, create .riki/
 riki test -u <base_url>      # run contract tests
 riki report                  # generate report from last run
-python -m src.riki.mock_server  # test server on :8765
+python -m src.riki.mock_server  # test server on :8765 (default no auth)
+python -m src.riki.mock_server basic+bearer  # with dual auth
 ```
 
 ## Key Behaviors
 - **Topological order**: POST first, GET middle, DELETE last within same resource
-- **Memory propagation**: IDs extracted from POST responses automatically fill path params in subsequent GET/DELETE calls
-- **Retry**: Failed contracts retry up to 2x with `heal_payload` (mutates payload values)
+- **Memory propagation**: IDs extracted from POST responses automatically fill path params in subsequent GET/DELETE calls. Supports array responses (extracts from first element), nested wrappers (`data`, `results`, `items`), and namespaced keys (`pets_id`, `users_id`)
+- **Schema override**: When a 200 response is an array but spec says `type: object`, `validate_contract` patches the spec and flags it as an auto-correction (never silent)
+- **Auth flow**: `reasoning/flow.py` detects login/auth endpoints, executes them with basic creds, extracts token, and builds a bearer scheme for downstream requests
+- **Classifier**: Pure function that maps `(response, violation) → ViolationType` — AUTH_DEPENDENT (401/403), MISSING_RESOURCE (404), SCHEMA_ERROR (200+type mismatch), VALIDATION_ERROR (422), UNKNOWN
+- **Healer**: Pure function that adjusts payload values per violation type (truncate strings on maxLength, clamp integers on minimum/maximum)
+- **Retry**: Failed contracts retry up to 2x with `heal_payload` (deterministic healing via `healer.py`)
 - **Validation**: Uses `openapi-core` for deterministic schema matching; LLM has NO role in validation
 - **State merging**: All node returns merge into shared `TestState` (LangGraph merge); nodes must copy-and-extend dict fields like `results`, `payloads`, `retry_map`
 - **Scanner ignores**: frontend dirs (components, assets, public), test files, `.git`/`node_modules`/`.venv`
 - **Ephemeral spec**: When no OpenAPI file found, scanner builds a minimal 3.0.3 spec from code-discovered routes
-- **Auth**: `AuthScheme` supports basic, bearer, and apiKey types; multiple schemes stack (e.g. basic+bearer sent together)
-- **`plan_sequence`**: Merges spec-detected `securitySchemes` with user-provided credentials from `TestState.auth`
-- **`execute_request`**: Passes all auth schemes to `execute_http_request` which calls `inject_auth_headers()`; each scheme renders its own header
+- **Scanner Express mounts**: Detects `app.use('/prefix', router)` patterns and resolves `require()`/`import` to trace router files to their mount prefixes
+- **Auth**: `AuthScheme` supports basic, bearer, and apiKey types; multiple schemes stack (e.g. basic+bearer sent as single comma-separated `Authorization` header, dual-auth compatible)
 
 ## Design Decisions
 - `PayloadTemplate` uses `Dict[str, str]` for query/path params (values always cast to string)
@@ -56,3 +76,6 @@ python -m src.riki.mock_server  # test server on :8765
 - `_ensure_state()` converts raw dict→TestState at each node entry to handle LangGraph's mixed dict/object state
 - Scanner detects specs by filename (`*openapi*`, `*swagger*`) AND by content (`openapi:` key in first 4KB)
 - Route patterns cover FastAPI, Flask, Gin, Fiber, Echo, Express, Hono, and Django `path()`
+- **Reasoning modules are deterministic**: Classifier and Healer are pure functions with no side effects, fully unit-testable in isolation
+- **LLM is NOT required**: The Diagnostician (LLM) is only invoked when Classifier returns `UNKNOWN`, and its output passes through a deterministic Supervisor circuit-breaker
+- **Schema overrides are always reported**: Never applied silently — they appear in both the JSON report and reasoning log

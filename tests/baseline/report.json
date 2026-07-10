@@ -1,0 +1,666 @@
+{
+  "spec_path": "/Users/apple/Documents/Projects/riki/src/riki/sample_spec.yaml",
+  "base_url": "http://localhost:8765",
+  "auth": [
+    {
+      "type": "basic",
+      "username": "admin",
+      "password": "secret123",
+      "token": null,
+      "key": null,
+      "key_in": "header",
+      "key_name": "X-API-Key"
+    },
+    {
+      "type": "bearer",
+      "username": null,
+      "password": null,
+      "token": "tok-xyz",
+      "key": null,
+      "key_in": "header",
+      "key_name": "X-API-Key"
+    }
+  ],
+  "raw_spec": {
+    "openapi": "3.0.0",
+    "info": {
+      "title": "Pet Store API",
+      "version": "1.0.0",
+      "description": "A sample API for testing the contract testing system"
+    },
+    "paths": {
+      "/pets": {
+        "post": {
+          "operationId": "createPet",
+          "summary": "Create a new pet",
+          "tags": [
+            "pets"
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatePetRequest"
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "Pet created",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Pet"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "get": {
+          "operationId": "listPets",
+          "summary": "List all pets",
+          "tags": [
+            "pets"
+          ],
+          "parameters": [
+            {
+              "name": "limit",
+              "in": "query",
+              "schema": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              },
+              "required": false
+            },
+            {
+              "name": "species",
+              "in": "query",
+              "schema": {
+                "type": "string",
+                "enum": [
+                  "cat",
+                  "dog",
+                  "bird"
+                ]
+              },
+              "required": false
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "A list of pets",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/Pet"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/pets/{petId}": {
+        "get": {
+          "operationId": "getPetById",
+          "summary": "Get a pet by ID",
+          "tags": [
+            "pets"
+          ],
+          "parameters": [
+            {
+              "name": "petId",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "A pet",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/Pet"
+                  }
+                }
+              }
+            },
+            "404": {
+              "description": "Pet not found"
+            }
+          }
+        },
+        "delete": {
+          "operationId": "deletePet",
+          "summary": "Delete a pet by ID",
+          "tags": [
+            "pets"
+          ],
+          "parameters": [
+            {
+              "name": "petId",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "Pet deleted"
+            },
+            "404": {
+              "description": "Pet not found"
+            }
+          }
+        }
+      },
+      "/users": {
+        "post": {
+          "operationId": "createUser",
+          "summary": "Create a new user",
+          "tags": [
+            "users"
+          ],
+          "requestBody": {
+            "required": true,
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateUserRequest"
+                }
+              }
+            }
+          },
+          "responses": {
+            "201": {
+              "description": "User created",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "/users/{userId}": {
+        "get": {
+          "operationId": "getUserById",
+          "summary": "Get a user by ID",
+          "tags": [
+            "users"
+          ],
+          "parameters": [
+            {
+              "name": "userId",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          ],
+          "responses": {
+            "200": {
+              "description": "A user",
+              "content": {
+                "application/json": {
+                  "schema": {
+                    "$ref": "#/components/schemas/User"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "delete": {
+          "operationId": "deleteUser",
+          "summary": "Delete a user by ID",
+          "tags": [
+            "users"
+          ],
+          "parameters": [
+            {
+              "name": "userId",
+              "in": "path",
+              "required": true,
+              "schema": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          ],
+          "responses": {
+            "204": {
+              "description": "User deleted"
+            }
+          }
+        }
+      }
+    },
+    "components": {
+      "schemas": {
+        "Pet": {
+          "type": "object",
+          "required": [
+            "id",
+            "name",
+            "species"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "Unique identifier"
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "species": {
+              "type": "string",
+              "enum": [
+                "cat",
+                "dog",
+                "bird"
+              ],
+              "description": "Species of the pet"
+            },
+            "age": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 50
+            },
+            "ownerId": {
+              "type": "integer",
+              "description": "ID of the owner user"
+            }
+          }
+        },
+        "CreatePetRequest": {
+          "type": "object",
+          "required": [
+            "name",
+            "species"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 100,
+              "example": "Fluffy"
+            },
+            "species": {
+              "type": "string",
+              "enum": [
+                "cat",
+                "dog",
+                "bird"
+              ],
+              "example": "cat"
+            },
+            "age": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 999
+            }
+          }
+        },
+        "User": {
+          "type": "object",
+          "required": [
+            "id",
+            "name",
+            "email"
+          ],
+          "properties": {
+            "id": {
+              "type": "integer",
+              "description": "Unique identifier"
+            },
+            "name": {
+              "type": "string",
+              "maxLength": 100
+            },
+            "email": {
+              "type": "string",
+              "format": "email"
+            }
+          }
+        },
+        "CreateUserRequest": {
+          "type": "object",
+          "required": [
+            "name",
+            "email"
+          ],
+          "properties": {
+            "name": {
+              "type": "string",
+              "maxLength": 100,
+              "example": "John Doe"
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "example": "john@example.com"
+            }
+          }
+        }
+      }
+    }
+  },
+  "endpoints": [
+    {
+      "path": "/pets",
+      "method": "POST",
+      "operation_id": "createPet",
+      "summary": "Create a new pet",
+      "tags": [
+        "pets"
+      ],
+      "has_path_params": false,
+      "has_body": true,
+      "depends_on": [],
+      "success_status": 201
+    },
+    {
+      "path": "/pets",
+      "method": "GET",
+      "operation_id": "listPets",
+      "summary": "List all pets",
+      "tags": [
+        "pets"
+      ],
+      "has_path_params": false,
+      "has_body": false,
+      "depends_on": [],
+      "success_status": 200
+    },
+    {
+      "path": "/pets/{petId}",
+      "method": "GET",
+      "operation_id": "getPetById",
+      "summary": "Get a pet by ID",
+      "tags": [
+        "pets"
+      ],
+      "has_path_params": true,
+      "has_body": false,
+      "depends_on": [],
+      "success_status": 200
+    },
+    {
+      "path": "/pets/{petId}",
+      "method": "DELETE",
+      "operation_id": "deletePet",
+      "summary": "Delete a pet by ID",
+      "tags": [
+        "pets"
+      ],
+      "has_path_params": true,
+      "has_body": false,
+      "depends_on": [],
+      "success_status": 204
+    },
+    {
+      "path": "/users",
+      "method": "POST",
+      "operation_id": "createUser",
+      "summary": "Create a new user",
+      "tags": [
+        "users"
+      ],
+      "has_path_params": false,
+      "has_body": true,
+      "depends_on": [],
+      "success_status": 201
+    },
+    {
+      "path": "/users/{userId}",
+      "method": "GET",
+      "operation_id": "getUserById",
+      "summary": "Get a user by ID",
+      "tags": [
+        "users"
+      ],
+      "has_path_params": true,
+      "has_body": false,
+      "depends_on": [],
+      "success_status": 200
+    },
+    {
+      "path": "/users/{userId}",
+      "method": "DELETE",
+      "operation_id": "deleteUser",
+      "summary": "Delete a user by ID",
+      "tags": [
+        "users"
+      ],
+      "has_path_params": true,
+      "has_body": false,
+      "depends_on": [],
+      "success_status": 204
+    }
+  ],
+  "endpoint_queue": [],
+  "current_endpoint": null,
+  "memory": {
+    "pets_id": 1,
+    "id": 1,
+    "users_id": 1
+  },
+  "payloads": {
+    "POST:/pets": {
+      "body": {
+        "name": "Fluffy",
+        "species": "cat",
+        "age": 0
+      },
+      "query": null,
+      "path_params": null
+    },
+    "POST:/users": {
+      "body": {
+        "name": "John Doe",
+        "email": "john@example.com"
+      },
+      "query": null,
+      "path_params": null
+    },
+    "GET:/pets": {
+      "body": null,
+      "query": {
+        "limit": "1",
+        "species": "cat"
+      },
+      "path_params": null
+    },
+    "GET:/pets/{petId}": {
+      "body": null,
+      "query": null,
+      "path_params": {
+        "petId": "1"
+      }
+    },
+    "GET:/users/{userId}": {
+      "body": null,
+      "query": null,
+      "path_params": {
+        "userId": "1"
+      }
+    },
+    "DELETE:/pets/{petId}": {
+      "body": null,
+      "query": null,
+      "path_params": {
+        "petId": "1"
+      }
+    },
+    "DELETE:/users/{userId}": {
+      "body": null,
+      "query": null,
+      "path_params": {
+        "userId": "1"
+      }
+    }
+  },
+  "results": {
+    "POST:/pets": {
+      "endpoint": "/pets",
+      "method": "POST",
+      "status": "PASS",
+      "request_payload": {
+        "body": {
+          "name": "Fluffy",
+          "species": "cat",
+          "age": 0
+        }
+      },
+      "response_status": 201,
+      "response_body": {
+        "id": 1,
+        "name": "Fluffy",
+        "species": "cat",
+        "age": 0
+      },
+      "violations": [],
+      "retry_count": 0,
+      "duration_ms": 38.47908973693848
+    },
+    "POST:/users": {
+      "endpoint": "/users",
+      "method": "POST",
+      "status": "PASS",
+      "request_payload": {
+        "body": {
+          "name": "John Doe",
+          "email": "john@example.com"
+        }
+      },
+      "response_status": 201,
+      "response_body": {
+        "id": 1,
+        "name": "John Doe",
+        "email": "john@example.com"
+      },
+      "violations": [],
+      "retry_count": 0,
+      "duration_ms": 2.774953842163086
+    },
+    "GET:/pets": {
+      "endpoint": "/pets",
+      "method": "GET",
+      "status": "PASS",
+      "request_payload": {
+        "query": {
+          "limit": "1",
+          "species": "cat"
+        }
+      },
+      "response_status": 200,
+      "response_body": [
+        {
+          "id": 1,
+          "name": "Fluffy",
+          "species": "cat",
+          "age": 0
+        }
+      ],
+      "violations": [],
+      "retry_count": 0,
+      "duration_ms": 3.2219886779785156
+    },
+    "GET:/pets/{petId}": {
+      "endpoint": "/pets/{petId}",
+      "method": "GET",
+      "status": "PASS",
+      "request_payload": {
+        "path_params": {
+          "petId": "1"
+        }
+      },
+      "response_status": 200,
+      "response_body": {
+        "id": 1,
+        "name": "Fluffy",
+        "species": "cat",
+        "age": 0
+      },
+      "violations": [],
+      "retry_count": 0,
+      "duration_ms": 2.7129650115966797
+    },
+    "GET:/users/{userId}": {
+      "endpoint": "/users/{userId}",
+      "method": "GET",
+      "status": "PASS",
+      "request_payload": {
+        "path_params": {
+          "userId": "1"
+        }
+      },
+      "response_status": 200,
+      "response_body": {
+        "id": 1,
+        "name": "John Doe",
+        "email": "john@example.com"
+      },
+      "violations": [],
+      "retry_count": 0,
+      "duration_ms": 2.8243064880371094
+    },
+    "DELETE:/pets/{petId}": {
+      "endpoint": "/pets/{petId}",
+      "method": "DELETE",
+      "status": "PASS",
+      "request_payload": {
+        "path_params": {
+          "petId": "1"
+        }
+      },
+      "response_status": 204,
+      "response_body": "",
+      "violations": [],
+      "retry_count": 0,
+      "duration_ms": 2.7091503143310547
+    },
+    "DELETE:/users/{userId}": {
+      "endpoint": "/users/{userId}",
+      "method": "DELETE",
+      "status": "PASS",
+      "request_payload": {
+        "path_params": {
+          "userId": "1"
+        }
+      },
+      "response_status": 204,
+      "response_body": "",
+      "violations": [],
+      "retry_count": 0,
+      "duration_ms": 2.5708675384521484
+    }
+  },
+  "violations": [],
+  "retry_map": {},
+  "spec_overrides": {},
+  "reasoning_log": [],
+  "start_time": 1783681487.5348082,
+  "end_time": 1783681487.6574762,
+  "error": null
+}

@@ -82,6 +82,14 @@ class TestState(BaseModel):
     retry_map: Dict[str, int] = Field(
         default_factory=dict, description="Retry count per endpoint key"
     )
+    spec_overrides: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Runtime spec patches from response introspection (e.g. object→array)",
+    )
+    reasoning_log: List[Dict[str, Any]] = Field(
+        default_factory=list,
+        description="Audit trail of agent decisions and observations",
+    )
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     error: Optional[str] = None

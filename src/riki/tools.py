@@ -255,10 +255,13 @@ def generate_payload(
 def _resolve_path_params_from_memory(
     path_params: Dict[str, Any], memory: Dict[str, Any], endpoint_key: str
 ) -> Dict[str, Any]:
+    resource = endpoint_key.split(":")[-1].strip("/").split("/")[0] if ":" in endpoint_key else ""
     for key in list(path_params.keys()):
         memory_val = memory.get(key)
         if memory_val is None:
             memory_val = memory.get("id")
+        if memory_val is None and resource:
+            memory_val = memory.get(f"{resource}_{key}")
         if memory_val is not None:
             path_params[key] = str(memory_val)
     return path_params
@@ -496,23 +499,69 @@ def _extract_expected_status(err: Any, actual: int) -> int:
     return int(match.group(1)) if match else (200 if actual < 400 else actual)
 
 
+NESTED_WRAPPERS = {"data", "results", "items", "entries", "records"}
+
+
+def _extract_id_fields(
+    obj: Dict[str, Any], prefix: str = ""
+) -> Dict[str, Any]:
+    """Extract id-like fields from a dict, optionally with a prefix."""
+    extracted: Dict[str, Any] = {}
+    id_fields = ["id", "ID", "Id", "resource_id", "userId", "user_id", "token", "slug"]
+
+    for field in id_fields:
+        val = obj.get(field)
+        if val is not None:
+            key = f"{prefix}_{field}" if prefix else field
+            extracted[key] = val
+
+    return extracted
+
+
 def extract_memory_variables(
-    body: Any, response_headers: Dict[str, str], memory: Dict[str, Any]
+    body: Any,
+    response_headers: Dict[str, str],
+    memory: Dict[str, Any],
+    path: str = "",
 ) -> Dict[str, Any]:
     updated = dict(memory)
+
+    resource = path.strip("/").split("/")[0] if path else ""
+
+    target: Optional[Dict] = None
     if isinstance(body, dict):
+        target = body
+        for wrapper in NESTED_WRAPPERS:
+            if wrapper in body and isinstance(body[wrapper], dict):
+                target = body[wrapper]
+                break
+            if wrapper in body and isinstance(body[wrapper], list) and body[wrapper]:
+                first = body[wrapper][0]
+                if isinstance(first, dict):
+                    target = first
+                break
+    elif isinstance(body, list) and body:
+        first = body[0]
+        if isinstance(first, dict):
+            target = first
 
-        id_fields = ["id", "ID", "Id", "resource_id", "userId", "user_id", "token", "slug"]
-        for field in id_fields:
-            val = body.get(field)
-            if val is not None:
-                updated[field] = val
+    if target:
+        extracted = _extract_id_fields(target)
+        if resource:
+            prefixed = {
+                f"{resource}_{k}": v for k, v in extracted.items()
+            }
+            updated.update(prefixed)
+        updated.update(extracted)
 
-        if "data" in body and isinstance(body["data"], dict):
-            for field in id_fields:
-                val = body["data"].get(field)
-                if val is not None:
-                    updated[field] = val
+        for wrapper in NESTED_WRAPPERS:
+            if wrapper in target and isinstance(target[wrapper], dict):
+                nested = _extract_id_fields(target[wrapper])
+                if resource:
+                    updated.update(
+                        {f"{resource}_{k}": v for k, v in nested.items()}
+                    )
+                updated.update(nested)
 
     for header_name in ("X-Request-Id", "Location", "ETag"):
         val = response_headers.get(header_name)

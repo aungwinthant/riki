@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
@@ -64,6 +65,7 @@ class PayloadTemplate(BaseModel):
 class TestState(BaseModel):
     spec_path: str
     base_url: str
+    auth: List[AuthScheme] = Field(default_factory=list)
     raw_spec: Dict[str, Any] = Field(default_factory=dict)
     endpoints: List[Endpoint] = Field(default_factory=list)
     endpoint_queue: List[str] = Field(
@@ -83,6 +85,29 @@ class TestState(BaseModel):
     start_time: Optional[float] = None
     end_time: Optional[float] = None
     error: Optional[str] = None
+
+
+class AuthScheme(BaseModel):
+    type: str  # "basic" | "bearer" | "apiKey" | "oauth2"
+    username: Optional[str] = None
+    password: Optional[str] = None
+    token: Optional[str] = None
+    key: Optional[str] = None
+    key_in: str = "header"
+    key_name: str = "X-API-Key"
+
+    def to_headers(self) -> Dict[str, str]:
+        headers: Dict[str, str] = {}
+        if self.type == "basic" and self.username and self.password:
+            raw = f"{self.username}:{self.password}"
+            encoded = base64.b64encode(raw.encode()).decode()
+            headers["Authorization"] = f"Basic {encoded}"
+        elif self.type == "bearer" and self.token:
+            headers["Authorization"] = f"Bearer {self.token}"
+        elif self.type == "apiKey" and self.key:
+            if self.key_in == "header":
+                headers[self.key_name] = self.key
+        return headers
 
 
 class PlannerOutput(BaseModel):

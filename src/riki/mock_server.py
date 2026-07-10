@@ -1,5 +1,7 @@
 """A mock server that perfectly implements the sample OpenAPI spec for testing."""
+import base64
 import json
+import os
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import urlparse
 
@@ -10,12 +12,49 @@ DATA: dict = {
     "next_user_id": 1,
 }
 
+# Auth mode from environment: "basic", "bearer", "basic+bearer", or None
+AUTH_MODE = os.environ.get("Riki_AUTH", "").lower()
+BASIC_CREDS = os.environ.get("Riki_AUTH_BASIC", "admin:secret123")
+BEARER_TOKEN = os.environ.get("Riki_AUTH_BEARER", "test-token-xyz")
+
 
 class MockAPIHandler(BaseHTTPRequestHandler):
+    def _check_auth(self) -> bool:
+        if not AUTH_MODE:
+            return True
+        auth_header = self.headers.get("Authorization", "")
+
+        if "basic" in AUTH_MODE:
+            expected = "Basic " + base64.b64encode(BASIC_CREDS.encode()).decode()
+            if auth_header == expected:
+                return True
+            if "bearer" not in AUTH_MODE:
+                self._send_error(401, "Unauthorized — Basic auth required")
+                return False
+
+        if "bearer" in AUTH_MODE:
+            expected = "Bearer " + BEARER_TOKEN
+            if auth_header == expected:
+                return True
+            if "basic" not in AUTH_MODE:
+                self._send_error(401, "Unauthorized — Bearer token required")
+                return False
+
+        self._send_error(401, "Unauthorized — valid credentials required")
+        return False
+
+    def _send_error(self, code: int, message: str):
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.end_headers()
+        self.wfile.write(json.dumps({"error": message}).encode())
+
     def _path(self):
         return urlparse(self.path).path
 
     def do_GET(self):
+        if not self._check_auth():
+            return
         path = self._path()
         if path == "/pets":
             self._list_pets()
@@ -29,6 +68,8 @@ class MockAPIHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self):
+        if not self._check_auth():
+            return
         path = self._path()
         if path == "/pets":
             self._create_pet()
@@ -38,6 +79,8 @@ class MockAPIHandler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_DELETE(self):
+        if not self._check_auth():
+            return
         path = self._path()
         if path.startswith("/pets/"):
             self._delete_pet()
@@ -134,9 +177,21 @@ class MockAPIHandler(BaseHTTPRequestHandler):
 
 def run_mock_server(port=8765):
     server = HTTPServer(("0.0.0.0", port), MockAPIHandler)
+    auth_info = f"  auth: {AUTH_MODE}" if AUTH_MODE else "  auth: none"
     print(f"Mock API running on http://localhost:{port}")
+    print(auth_info)
+    if AUTH_MODE:
+        if "basic" in AUTH_MODE:
+            print(f"  basic creds: {BASIC_CREDS}")
+        if "bearer" in AUTH_MODE:
+            print(f"  bearer token: {BEARER_TOKEN}")
     server.serve_forever()
 
 
 if __name__ == "__main__":
+    import sys
+
+    mode = sys.argv[1] if len(sys.argv) > 1 else ""
+    if mode:
+        os.environ["Riki_AUTH"] = mode
     run_mock_server()

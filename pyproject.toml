@@ -13,10 +13,11 @@ dependencies = [
     "pydantic>=2.0",
     "httpx",
     "pyyaml",
+    "click>=8.0",
 ]
 
 [project.scripts]
-riki = "riki.main:main"
+riki = "riki.cli.main:cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -12,6 +12,7 @@ from openapi_core import Spec, validate_response as core_validate_response
 from openapi_core.testing import MockRequest, MockResponse
 
 from .models import (
+    AuthScheme,
     ContractViolation,
     Endpoint,
     ExecutionLog,
@@ -333,12 +334,21 @@ def generate_string_from_schema(
     return _generate_value(schema, raw_spec, {})
 
 
+def inject_auth_headers(
+    headers: Dict[str, str], auth: List[AuthScheme]
+) -> Dict[str, str]:
+    for scheme in auth:
+        headers.update(scheme.to_headers())
+    return headers
+
+
 async def execute_http_request(
     base_url: str,
     method: str,
     path: str,
     payload: PayloadTemplate,
     memory: Dict[str, Any],
+    auth: Optional[List[AuthScheme]] = None,
     timeout: int = 30,
 ) -> Tuple[int, Dict[str, str], Any]:
     formatted_path = path
@@ -349,6 +359,8 @@ async def execute_http_request(
     url = urljoin(base_url.rstrip("/") + "/", formatted_path.lstrip("/"))
 
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    if auth:
+        headers = inject_auth_headers(headers, auth)
 
     body = payload.body
     if body:
@@ -501,3 +513,29 @@ def extract_memory_variables(
             updated[key] = val
 
     return updated
+
+
+def detect_auth_schemes(raw_spec: Dict[str, Any]) -> List[AuthScheme]:
+    schemes: List[AuthScheme] = []
+    security_schemes = (
+        raw_spec.get("components", {}).get("securitySchemes", {})
+    )
+
+    for name, definition in security_schemes.items():
+        s_type = definition.get("type", "")
+        if s_type == "http":
+            http_scheme = definition.get("scheme", "").lower()
+            if http_scheme == "basic":
+                schemes.append(AuthScheme(type="basic"))
+            elif http_scheme == "bearer":
+                schemes.append(AuthScheme(type="bearer"))
+        elif s_type == "apiKey":
+            schemes.append(
+                AuthScheme(
+                    type="apiKey",
+                    key_in=definition.get("in", "header"),
+                    key_name=definition.get("name", "X-API-Key"),
+                )
+            )
+
+    return schemes

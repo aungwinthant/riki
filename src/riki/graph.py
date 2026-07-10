@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from langgraph.graph import END, StateGraph
 
 from .models import (
+    AuthScheme,
     ContractViolation,
     Endpoint,
     ExecutionLog,
@@ -15,6 +16,7 @@ from .models import (
 )
 from .tools import (
     build_request_schema,
+    detect_auth_schemes,
     execute_http_request,
     extract_endpoints,
     extract_memory_variables,
@@ -40,10 +42,22 @@ def plan_sequence(state: TestState) -> Dict[str, Any]:
     endpoints = extract_endpoints(raw)
     planner = topological_sort(endpoints)
 
+    detected = detect_auth_schemes(raw)
+    merged_auth: List[Dict[str, Any]] = []
+    seen_types = set()
+    for d in detected:
+        seen_types.add(d.type)
+        merged_auth.append(d.model_dump())
+    for a in s.auth:
+        if a.type not in seen_types:
+            seen_types.add(a.type)
+            merged_auth.append(a.model_dump())
+
     return {
         "raw_spec": raw,
         "endpoints": [ep.model_dump() for ep in endpoints],
         "endpoint_queue": planner.ordered_keys,
+        "auth": merged_auth,
         "start_time": time.time(),
     }
 
@@ -87,8 +101,11 @@ async def execute_request(state: TestState) -> Dict[str, Any]:
     payload = PayloadTemplate(**raw_payload) if isinstance(raw_payload, dict) else raw_payload
 
     start = time.time()
+    auth_objs = [
+        a if isinstance(a, AuthScheme) else AuthScheme(**a) for a in getattr(s, "auth", [])
+    ]
     status_code, headers, body = await execute_http_request(
-        s.base_url, method, path, payload, s.memory
+        s.base_url, method, path, payload, s.memory, auth=auth_objs
     )
     duration = (time.time() - start) * 1000
 

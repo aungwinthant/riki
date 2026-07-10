@@ -152,8 +152,9 @@ def init(path: str, base_url: str, **auth_kwargs):
     """Scan the repository and initialise .riki/ configuration.
 
     Discovers OpenAPI specification files (*openapi*, *swagger*, *.yaml,
-    *.yml, *.json) OR scans source code for routing patterns
-    (FastAPI, Gin, Express, etc.) and builds an ephemeral spec.
+    *.yml, *.json) AND/OR scans source code for routing patterns
+    (FastAPI, Gin, Express, etc.), then merges both sources to build
+    a comprehensive ephemeral spec.
     """
     root = Path(path).resolve()
     if not root.is_dir():
@@ -164,22 +165,22 @@ def init(path: str, base_url: str, **auth_kwargs):
 
     result = scan_repository(root)
 
-    if result["spec_path"]:
-        click.echo(f"  Found OpenAPI spec: {result['spec_path']}")
-    else:
-        click.echo(
-            "  No OpenAPI spec found; scanning source code for routes ..."
-        )
-        routes = result.get("discovered_routes", [])
-        if routes:
-            click.echo(f"  Discovered {len(routes)} route(s) via code scan")
-            for r in routes:
-                click.echo(f"    {r['method']:6s} {r['path']}")
-        else:
-            click.echo("  No routes discovered.")
-
     spec_path = result.get("spec_path")
-    if not spec_path and result.get("discovered_routes"):
+    routes = result.get("discovered_routes", [])
+
+    if spec_path:
+        click.echo(f"  Found OpenAPI spec: {spec_path}")
+    if routes:
+        if spec_path:
+            click.echo(f"  Discovered {len(routes)} route(s) from spec and source code")
+        else:
+            click.echo(f"  Discovered {len(routes)} route(s) via code scan")
+        for r in routes:
+            click.echo(f"    {r['method']:6s} {r['path']}")
+    else:
+        click.echo("  No API routes discovered.")
+
+    if not spec_path and routes:
         ephemeral = result.get("ephemeral_spec_path")
         if ephemeral:
             spec_path = ephemeral

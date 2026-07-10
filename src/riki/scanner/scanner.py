@@ -266,6 +266,35 @@ def _normalise_path_template(raw: str) -> str:
     return cleaned
 
 
+def _extract_routes_from_spec(spec_path: Path) -> List[Dict[str, str]]:
+    try:
+        with open(spec_path) as f:
+            if spec_path.suffix in (".yaml", ".yml"):
+                raw = yaml.safe_load(f)
+            else:
+                raw = json.load(f)
+    except Exception:
+        return []
+
+    if not isinstance(raw, dict) or ("openapi" not in raw and "swagger" not in raw):
+        return []
+
+    routes: List[Dict[str, str]] = []
+    paths = raw.get("paths", {})
+    for path, methods in paths.items():
+        for method in methods:
+            method_upper = method.upper()
+            if method_upper not in ("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"):
+                continue
+            routes.append({
+                "method": method_upper,
+                "path": path,
+                "source": str(spec_path),
+            })
+
+    return routes
+
+
 def _deduplicate_routes(
     routes: List[Dict[str, str]],
 ) -> List[Dict[str, str]]:
@@ -351,23 +380,45 @@ def scan_repository(root: Path) -> Dict[str, Any]:
         "ephemeral_spec_path": None,
     }
 
+    # Find OpenAPI spec files (YAML/JSON)
     spec_files = _find_spec_files(root)
-    if spec_files:
-        result["spec_path"] = str(spec_files[0])
-        return result
 
+    # Always scan source code for routes
     source_files = _scan_source_files(root)
-    all_routes: List[Dict[str, str]] = []
+    all_source_routes: List[Dict[str, str]] = []
     for file_path, lang in source_files:
         routes = _extract_routes_from_file(file_path, lang)
-        all_routes.extend(routes)
+        all_source_routes.extend(routes)
 
-    unique_routes = _deduplicate_routes(all_routes)
-    result["discovered_routes"] = unique_routes
+    merged_routes: List[Dict[str, str]] = []
+    seen_keys: Set[Tuple[str, str]] = set()
 
-    if unique_routes:
+    # Spec routes first (authoritative)
+    spec_routes: List[Dict[str, str]] = []
+    if spec_files:
+        result["spec_path"] = str(spec_files[0])
+        spec_routes = _extract_routes_from_spec(spec_files[0])
+        for r in spec_routes:
+            norm_path = _normalise_path_template(r["path"])
+            key = (r["method"], norm_path)
+            if key not in seen_keys:
+                seen_keys.add(key)
+                merged_routes.append({**r, "path": norm_path})
+
+    # Source routes fill in gaps not covered by spec
+    for r in all_source_routes:
+        norm_path = _normalise_path_template(r["path"])
+        key = (r["method"], norm_path)
+        if key not in seen_keys:
+            seen_keys.add(key)
+            merged_routes.append({**r, "path": norm_path})
+
+    result["discovered_routes"] = merged_routes
+
+    # Build ephemeral spec from merged routes (enriched by spec if available)
+    if merged_routes:
         output_dir = root / ".riki"
-        spec_path = _build_ephemeral_spec(unique_routes, output_dir)
-        result["ephemeral_spec_path"] = str(spec_path)
+        ephem_path = _build_ephemeral_spec(merged_routes, output_dir)
+        result["ephemeral_spec_path"] = str(ephem_path)
 
     return result

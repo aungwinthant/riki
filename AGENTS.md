@@ -47,7 +47,7 @@ that falls back to the deterministic result on any failure.
 | `src/riki/reasoning/classifier.py` | Violation type classifier: `AUTH_DEPENDENT`, `MISSING_RESOURCE`, `SCHEMA_ERROR`, `VALIDATION_ERROR`, `UNKNOWN` |
 | `src/riki/reasoning/healer.py` | Deterministic payload healer: truncation, range clamping per error message |
 | `src/riki/reasoning/diagnostician.py` | Deterministic Diagnostician for UNKNOWN violations: `flag_as_bug`, `suggest_spec_fix`, `skip` |
-| `src/riki/reasoning/llm_diagnostician.py` | Optional LLM Diagnostician with circuit-breaker fallback to deterministic |
+| `src/riki/reasoning/llm_diagnostician.py` | Optional LLM Diagnostician with circuit-breaker fallback to deterministic. Supports `base_url` for local/Ollama proxies; `OPENAI_API_KEY` env var for auth. |
 | `src/riki/main.py` | Legacy CLI entrypoint (argparse), Markdown/JSON report generator |
 | `src/riki/mock_server.py` | Test mock server with `/pets` and `/users` CRUD, configurable auth modes |
 

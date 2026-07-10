@@ -7,17 +7,26 @@ import sys
 from pathlib import Path
 from typing import Dict, Any
 
-from .conftest import BASELINE_DIR
+from tests.conftest import BASELINE_DIR
 
 BASELINE_FILE = BASELINE_DIR / "report.json"
 SPEC_PATH = Path(__file__).parent.parent / "src" / "riki" / "sample_spec.yaml"
-RIKI_BIN = "riki"
 
 
 def _run_riki_test(base_url: str, spec_path: str, cwd: Path) -> Dict[str, Any]:
-    """Run riki test and return the JSON report."""
+    """Run riki init + test and return the JSON report."""
+    init_cmd = [
+        sys.executable, "-m", "riki",
+        "init", "--base-url", base_url,
+    ]
+    subprocess.run(init_cmd, capture_output=True, text=True, cwd=str(cwd))
+
+    test_cmd = [
+        sys.executable, "-m", "riki",
+        "test", "--base-url", base_url, "--spec", spec_path,
+    ]
     result = subprocess.run(
-        [RIKI_BIN, "test", "--base-url", base_url, "--spec", spec_path],
+        test_cmd,
         capture_output=True,
         text=True,
         cwd=str(cwd),
@@ -35,7 +44,9 @@ def _normalise_report(report: Dict[str, Any]) -> Dict[str, Any]:
     """Strip runtime-variant fields for deterministic comparison."""
     stripped = {}
     for key, val in report.items():
-        if key in ("start_time", "end_time", "raw_spec", "spec_path"):
+        if key in ("start_time", "end_time", "raw_spec", "spec_path", "llm_config"):
+            continue
+        if key == "diagnoses" and not val:
             continue
         if key == "results":
             stripped[key] = {}

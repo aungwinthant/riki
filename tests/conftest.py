@@ -20,7 +20,7 @@ def _start_mock_server():
     run_mock_server(port=MOCK_PORT)
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def mock_server(request: pytest.FixtureRequest) -> Generator[str, None, None]:
     """Start the mock server and yield its base URL."""
     proc = multiprocessing.Process(target=_start_mock_server, daemon=True)

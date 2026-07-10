@@ -337,9 +337,17 @@ def generate_string_from_schema(
 def inject_auth_headers(
     headers: Dict[str, str], auth: List[AuthScheme]
 ) -> Dict[str, str]:
+    result = dict(headers)
+    auth_parts: List[str] = []
     for scheme in auth:
-        headers.update(scheme.to_headers())
-    return headers
+        for key, value in scheme.to_headers().items():
+            if key.lower() == "authorization":
+                auth_parts.append(value)
+            else:
+                result[key] = value
+    if auth_parts:
+        result["Authorization"] = ", ".join(auth_parts)
+    return result
 
 
 async def execute_http_request(

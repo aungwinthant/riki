@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 import yaml
 
@@ -266,6 +266,83 @@ def _normalise_path_template(raw: str) -> str:
     return cleaned
 
 
+def _resolve_require_path(
+    source_file: Path, require_path: str, root: Path
+) -> Optional[Path]:
+    if not require_path.startswith("."):
+        return None
+    base = (source_file.parent / require_path).resolve()
+
+    for ext in SOURCE_EXTENSIONS["javascript"]:
+        candidate = base.with_suffix(ext)
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    candidate = base.with_suffix(".json")
+    if candidate.exists() and candidate.is_file():
+        return candidate
+
+    for ext in SOURCE_EXTENSIONS["javascript"]:
+        candidate = base / f"index{ext}"
+        if candidate.exists() and candidate.is_file():
+            return candidate
+    candidate = base / "index.json"
+    if candidate.exists() and candidate.is_file():
+        return candidate
+
+    return None
+
+
+def _find_express_mounts(root: Path) -> Dict[str, str]:
+    mount_map: Dict[str, str] = {}
+    js_exts = SOURCE_EXTENSIONS["javascript"]
+
+    for path in root.rglob("*"):
+        if _should_ignore(path, root):
+            continue
+        if not path.is_file() or path.suffix not in js_exts:
+            continue
+        if _has_frontend_hint(path):
+            continue
+
+        try:
+            content = path.read_text(encoding="utf-8", errors="replace")
+        except Exception:
+            continue
+
+        var_paths: Dict[str, str] = {}
+        for m in re.finditer(
+            r"""(?:const|let|var)\s+(\w+)\s*=\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)""",
+            content,
+        ):
+            var_paths[m.group(1)] = m.group(2)
+        for m in re.finditer(
+            r"""import\s+(\w+)\s+from\s+['"]([^'"]+)['"]""",
+            content,
+        ):
+            var_paths[m.group(1)] = m.group(2)
+
+        for m in re.finditer(
+            r"""\.use\s*\(\s*['"](/[^'"]*)['"]\s*,\s*(\w+)\s*\)""",
+            content,
+        ):
+            prefix = m.group(1)
+            var_name = m.group(2)
+            if var_name in var_paths:
+                resolved = _resolve_require_path(path, var_paths[var_name], root)
+                if resolved:
+                    mount_map[str(resolved)] = prefix
+
+        for m in re.finditer(
+            r"""\.use\s*\(\s*['"](/[^'"]*)['"]\s*,\s*require\s*\(\s*['"]([^'"]+)['"]\s*\)\s*\)""",
+            content,
+        ):
+            resolved = _resolve_require_path(path, m.group(2), root)
+            if resolved:
+                mount_map[str(resolved)] = m.group(1)
+
+    return mount_map
+
+
 def _extract_routes_from_spec(spec_path: Path) -> List[Dict[str, str]]:
     try:
         with open(spec_path) as f:
@@ -383,11 +460,21 @@ def scan_repository(root: Path) -> Dict[str, Any]:
     # Find OpenAPI spec files (YAML/JSON)
     spec_files = _find_spec_files(root)
 
+    # Detect Express router mount points (app.use('/prefix', router))
+    mount_map = _find_express_mounts(root)
+
     # Always scan source code for routes
     source_files = _scan_source_files(root)
     all_source_routes: List[Dict[str, str]] = []
     for file_path, lang in source_files:
         routes = _extract_routes_from_file(file_path, lang)
+        # Apply mount prefix if this file is mounted at a prefix
+        fp_str = str(file_path)
+        if fp_str in mount_map:
+            prefix = mount_map[fp_str]
+            for r in routes:
+                p = r["path"]
+                r["path"] = prefix if p == "/" else prefix.rstrip("/") + "/" + p.lstrip("/")
         all_source_routes.extend(routes)
 
     merged_routes: List[Dict[str, str]] = []

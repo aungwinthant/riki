@@ -17,7 +17,7 @@ Graph (LangGraph cyclic state machine):
                                                               ↓
                                                          advance_queue → (loop)
 
-Supervisor pattern (in-progress):
+Supervisor pattern (implemented):
                     ┌───────────────┐
                     │   Supervisor   │  (planner — owns queue, delegates)
                     └───────┬───────┘
@@ -25,9 +25,13 @@ Supervisor pattern (in-progress):
               ▼             ▼             ▼              ▼
         ┌──────────┐  ┌───────────┐ ┌─────────────┐ ┌──────────┐
         │ Executor │  │Classifier │ │Diagnostician│ │ Reporter │
-        │(det.)    │  │(det.)     │ │(LLM, opt-in)│ │(det.)    │
-        └──────────┘  └───────────┘ └─────────────┘ └──────────┘
-Diagnostician is only invoked when Classifier returns UNKNOWN.
+        │(det.)    │  │(det.)     │ │(determ. +   │ │(det.)    │
+        └──────────┘  └───────────┘ │LLM, opt-in) │ └──────────┘
+                                    └─────────────┘
+Diagnostician runs when Classifier returns UNKNOWN. Deterministic module
+(diagnostician.py) handles all cases; optional LLM (llm_diagnostician.py)
+runs on the same violations and its output passes through a circuit-breaker
+that falls back to the deterministic result on any failure.
 ```
 
 ## Key Files
@@ -42,6 +46,8 @@ Diagnostician is only invoked when Classifier returns UNKNOWN.
 | `src/riki/reasoning/flow.py` | Auth flow detection: login endpoint discovery, token extraction, bearer scheme builder |
 | `src/riki/reasoning/classifier.py` | Violation type classifier: `AUTH_DEPENDENT`, `MISSING_RESOURCE`, `SCHEMA_ERROR`, `VALIDATION_ERROR`, `UNKNOWN` |
 | `src/riki/reasoning/healer.py` | Deterministic payload healer: truncation, range clamping per error message |
+| `src/riki/reasoning/diagnostician.py` | Deterministic Diagnostician for UNKNOWN violations: `flag_as_bug`, `suggest_spec_fix`, `skip` |
+| `src/riki/reasoning/llm_diagnostician.py` | Optional LLM Diagnostician with circuit-breaker fallback to deterministic |
 | `src/riki/main.py` | Legacy CLI entrypoint (argparse), Markdown/JSON report generator |
 | `src/riki/mock_server.py` | Test mock server with `/pets` and `/users` CRUD, configurable auth modes |
 
@@ -78,4 +84,7 @@ python -m src.riki.mock_server basic+bearer  # with dual auth
 - Route patterns cover FastAPI, Flask, Gin, Fiber, Echo, Express, Hono, and Django `path()`
 - **Reasoning modules are deterministic**: Classifier and Healer are pure functions with no side effects, fully unit-testable in isolation
 - **LLM is NOT required**: The Diagnostician (LLM) is only invoked when Classifier returns `UNKNOWN`, and its output passes through a deterministic Supervisor circuit-breaker
+- **Circuit-breaker**: When LLM Diagnostician fails (network error, invalid JSON, malformed action), its result is silently discarded and the deterministic Diagnostician's output is used instead
 - **Schema overrides are always reported**: Never applied silently — they appear in both the JSON report and reasoning log
+- **Diagnostician**: When Classifier returns UNKNOWN, deterministic Diagnostician produces a concrete next_action (flag_as_bug / suggest_spec_fix / skip). Optional LLM Diagnostician runs on the same violations with circuit-breaker fallback
+- **Report**: Markdown report includes Reasoning Log (all classify/heal/diagnose decisions), Spec Overrides (flagged auto-corrections), and Diagnoses (UNKNOWN analysis with actions)

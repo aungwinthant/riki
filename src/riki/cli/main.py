@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import time
 from pathlib import Path
 from typing import Optional
@@ -262,7 +263,23 @@ def init(path: str, base_url: str, **auth_kwargs):
     help="Location of the API key",
     show_default=True,
 )
-def test(base_url: Optional[str], spec: Optional[str], max_concurrency: int, **auth_kwargs):
+@click.option(
+    "--llm-model",
+    default=None,
+    help="LLM model for Diagnostician (e.g. gpt-4o-mini). Enables LLM-powered UNKNOWN violation analysis.",
+)
+@click.option(
+    "--llm-provider",
+    default="openai",
+    show_default=True,
+    help="LLM provider (openai). OPENAI_API_KEY env var used for auth.",
+)
+@click.option(
+    "--llm-base-url",
+    default=None,
+    help="Custom base URL for LLM API (e.g. for local proxies).",
+)
+def test(base_url: Optional[str], spec: Optional[str], max_concurrency: int, **kwargs):
     """Execute contract tests against all discovered API endpoints.
 
     Launches a multi-agent swarm that plans execution order, generates
@@ -296,16 +313,28 @@ def test(base_url: Optional[str], spec: Optional[str], max_concurrency: int, **a
     click.echo(f"Max concurrency: {max_concurrency}")
 
     cli_auth = _auth_from_params(
-        auth_kwargs.get("auth_basic"),
-        auth_kwargs.get("auth_bearer"),
-        auth_kwargs.get("auth_apikey"),
-        auth_kwargs.get("auth_apikey_name", "X-API-Key"),
-        auth_kwargs.get("auth_apikey_in", "header"),
+        kwargs.get("auth_basic"),
+        kwargs.get("auth_bearer"),
+        kwargs.get("auth_apikey"),
+        kwargs.get("auth_apikey_name", "X-API-Key"),
+        kwargs.get("auth_apikey_in", "header"),
     )
     cfg_auth = cfg.get("auth", [])
     merged_auth = cfg_auth + [s for s in cli_auth if s not in cfg_auth]
     for s in merged_auth:
         click.echo(f"  auth     : {s['type']}")
+
+    llm_model = kwargs.get("llm_model")
+    llm_config = None
+    if llm_model:
+        from riki.models import LlmConfig
+        llm_config = LlmConfig(
+            provider=kwargs.get("llm_provider", "openai"),
+            model=llm_model,
+            api_key=kwargs.get("llm_api_key") or os.environ.get("OPENAI_API_KEY"),
+            base_url=kwargs.get("llm_base_url"),
+        )
+        click.echo(f"  llm      : {llm_config.provider}/{llm_config.model}")
 
     start = time.time()
     from riki.graph import build_graph
@@ -316,6 +345,7 @@ def test(base_url: Optional[str], spec: Optional[str], max_concurrency: int, **a
         spec_path=spec_path,
         base_url=resolved_url,
         auth=merged_auth,
+        llm_config=llm_config,
     )
 
     try:

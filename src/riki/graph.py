@@ -10,6 +10,7 @@ from .models import (
     ContractViolation,
     Endpoint,
     ExecutionLog,
+    LlmConfig,
     PayloadTemplate,
     TestState,
 )
@@ -22,6 +23,7 @@ from .reasoning.flow import (
     build_bearer_scheme,
 )
 from .reasoning.healer import heal as heal_payload_via_classifier
+from .reasoning.llm_diagnostician import llm_diagnose_all as llm_diagnose_all_violations
 from .tools import (
     build_request_schema,
     detect_auth_schemes,
@@ -176,7 +178,7 @@ def _patch_array_schema(
     return override
 
 
-def validate_contract(state: TestState) -> Dict[str, Any]:
+async def validate_contract(state: TestState) -> Dict[str, Any]:
     s = _ensure_state(state) if isinstance(state, dict) else state
     current_key = s.current_endpoint
     if not current_key:
@@ -234,6 +236,14 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
     merged_diagnoses = list(getattr(s, "diagnoses", []))
     merged_diagnoses.extend(new_diagnoses)
 
+    # Phase 5: LLM Diagnostician (opt-in) — run on same UNKNOWN violations
+    llm_diags: List = []
+    llm_config = getattr(s, "llm_config", None)
+    if llm_config is not None and unknown_violations:
+        llm_diags = await llm_diagnose_all_violations(log, unknown_violations, s.endpoints, llm_config)
+        for ld in llm_diags:
+            merged_diagnoses.append(ld)
+
     merged_spec_overrides = dict(getattr(s, "spec_overrides", {}))
     if schema_override:
         override_key = f"{method}:{path}"
@@ -261,14 +271,16 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
         merged_log = list(s.reasoning_log)
         merged_log.append(reasoning_step)
 
-        if new_diagnoses:
+        if new_diagnoses or llm_diags:
+            source = "llm" if llm_diags else "deterministic"
+            all_diags = llm_diags if llm_diags else new_diagnoses
             diag_step = {
                 "step": len(merged_log) + 1,
                 "endpoint": current_key,
                 "action": "diagnosed",
-                "observation": f"{len(new_diagnoses)} UNKNOWN violation(s) analyzed",
-                "decision": new_diagnoses[0].action,
-                "explanation": new_diagnoses[0].reason,
+                "observation": f"{len(all_diags)} UNKNOWN violation(s) analyzed via {source}",
+                "decision": all_diags[0].action,
+                "explanation": all_diags[0].reason,
             }
             merged_log.append(diag_step)
 

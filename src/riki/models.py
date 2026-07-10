@@ -69,6 +69,10 @@ class TestState(BaseModel):
     spec_path: str
     base_url: str
     auth: List[AuthScheme] = Field(default_factory=list)
+    llm_config: Optional[LlmConfig] = Field(
+        default=None,
+        description="LLM Diagnostician configuration (opt-in; None = disabled)",
+    )
     raw_spec: Dict[str, Any] = Field(default_factory=dict)
     endpoints: List[Endpoint] = Field(default_factory=list)
     endpoint_queue: List[str] = Field(
@@ -123,6 +127,13 @@ class AuthScheme(BaseModel):
             if self.key_in == "header":
                 headers[self.key_name] = self.key
         return headers
+
+
+class LlmConfig(BaseModel):
+    provider: str = "openai"
+    model: str = "gpt-4o-mini"
+    api_key: Optional[str] = None
+    base_url: Optional[str] = None
 
 
 class Diagnosis(BaseModel):

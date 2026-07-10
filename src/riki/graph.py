@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import random
 import time
 from typing import Any, Dict, List
 
@@ -14,6 +13,8 @@ from .models import (
     PayloadTemplate,
     TestState,
 )
+from .reasoning.classifier import classify, ViolationType
+from .reasoning.healer import heal as heal_payload_via_classifier
 from .tools import (
     build_request_schema,
     detect_auth_schemes,
@@ -202,7 +203,16 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
             ]
             schema_violations = filtered
 
+    # Phase 2: Classify each violation
+    for v in log.violations:
+        vtype = classify(log, v, s.endpoints)
+        v.violation_type = vtype.value
+
     log.violations.extend(schema_violations)
+    for v in log.violations:
+        if not v.violation_type:
+            vtype = classify(log, v, s.endpoints)
+            v.violation_type = vtype.value
 
     merged_spec_overrides = dict(getattr(s, "spec_overrides", {}))
     if schema_override:
@@ -219,11 +229,24 @@ def validate_contract(state: TestState) -> Dict[str, Any]:
         log_dict = log.model_dump()
         log_dict["violations"] = [v.model_dump() for v in log.violations]
         merged_results[current_key] = log_dict
+
+        reasoning_step = {
+            "step": len(s.reasoning_log) + 1,
+            "endpoint": current_key,
+            "action": "classified",
+            "observation": f"Response status {log.response_status} with {len(log.violations)} violation(s)",
+            "decision": "heal" if _should_heal(log.violations) else "advance",
+            "explanation": _build_explanation(log.violations),
+        }
+        merged_log = list(s.reasoning_log)
+        merged_log.append(reasoning_step)
+
         return {
             "results": merged_results,
             "violations": [v.model_dump() for v in schema_violations],
             "current_endpoint": current_key,
             "spec_overrides": merged_spec_overrides,
+            "reasoning_log": merged_log,
         }
     else:
         log.status = "PASS"
@@ -264,36 +287,44 @@ def heal_payload(state: TestState) -> Dict[str, Any]:
     raw_payload = s.payloads.get(current_key, {})
     payload = PayloadTemplate(**raw_payload) if isinstance(raw_payload, dict) else raw_payload
 
-    healed_payload = PayloadTemplate(
-        body=_heal_dict(payload.body) if payload.body else None,
-        query=_heal_dict(payload.query) if payload.query else None,
-        path_params=_heal_dict(payload.path_params) if payload.path_params else None,
-    )
+    raw_log = s.results.get(current_key, {})
+    violations_raw = raw_log.get("violations", []) if isinstance(raw_log, dict) else []
+
+    vtype = ViolationType.UNKNOWN
+    first_violation = None
+    if violations_raw:
+        first_violation = ContractViolation(**violations_raw[0]) if isinstance(violations_raw[0], dict) else violations_raw[0]
+        vt = first_violation.violation_type
+        if vt:
+            try:
+                vtype = ViolationType(vt)
+            except ValueError:
+                vtype = ViolationType.UNKNOWN
+
+    healed_payload = heal_payload_via_classifier(vtype, payload, first_violation)
 
     merged_payloads = dict(s.payloads)
     merged_payloads[current_key] = healed_payload.model_dump()
     merged_retries = dict(s.retry_map)
     merged_retries[current_key] = retries
 
+    reasoning_step = {
+        "step": len(s.reasoning_log) + 1,
+        "endpoint": current_key,
+        "action": "healed",
+        "observation": f"Violation type: {vtype.value}",
+        "decision": "retry" if retries < MAX_RETRIES else "abort",
+        "explanation": f"Applied heuristic for {vtype.value} (attempt {retries}/{MAX_RETRIES})",
+    }
+    merged_log = list(s.reasoning_log)
+    merged_log.append(reasoning_step)
+
     return {
         "payloads": merged_payloads,
         "retry_map": merged_retries,
         "current_endpoint": current_key,
+        "reasoning_log": merged_log,
     }
-
-
-def _heal_dict(d: Dict[str, Any]) -> Dict[str, Any]:
-    result: Dict[str, Any] = {}
-    for k, v in d.items():
-        if isinstance(v, str) and len(v) > 10:
-            result[k] = v[:5] + str(random.randint(100, 999))
-        elif isinstance(v, int):
-            result[k] = v + random.randint(1, 10)
-        elif isinstance(v, dict):
-            result[k] = _heal_dict(v)
-        else:
-            result[k] = v
-    return result
 
 
 def should_retry(state: TestState) -> str:
@@ -381,6 +412,22 @@ def build_graph() -> StateGraph:
     return workflow.compile()
 
 
+def _should_heal(violations: List[ContractViolation]) -> bool:
+    return any(v.violation_type in (
+        ViolationType.SCHEMA_ERROR.value,
+        ViolationType.VALIDATION_ERROR.value,
+    ) for v in violations)
+
+
+def _build_explanation(violations: List[ContractViolation]) -> str:
+    counts: Dict[str, int] = {}
+    for v in violations:
+        vt = v.violation_type or "unknown"
+        counts[vt] = counts.get(vt, 0) + 1
+    parts = [f"{n}x {t}" for t, n in sorted(counts.items())]
+    return ", ".join(parts) if parts else "no classification"
+
+
 def _route_validate(state: TestState) -> str:
     current_key = state.get("current_endpoint") if isinstance(state, dict) else state.current_endpoint
     if not current_key:
@@ -389,11 +436,19 @@ def _route_validate(state: TestState) -> str:
     results = state.get("results", {}) if isinstance(state, dict) else state.results
     raw_log = results.get(current_key, {})
     if isinstance(raw_log, dict):
-        violations = raw_log.get("violations", [])
+        violations_raw = raw_log.get("violations", [])
     else:
-        violations = getattr(raw_log, "violations", [])
+        violations_raw = getattr(raw_log, "violations", [])
 
-    if not violations:
+    if not violations_raw:
+        return "advance_queue"
+
+    violations = [
+        ContractViolation(**v) if isinstance(v, dict) else v
+        for v in violations_raw
+    ]
+
+    if not _should_heal(violations):
         return "advance_queue"
 
     retry_map = state.get("retry_map", {}) if isinstance(state, dict) else state.retry_map

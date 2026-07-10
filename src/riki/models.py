@@ -42,6 +42,9 @@ class ContractViolation(BaseModel):
     expected_value: Optional[Any] = None
     actual_value: Optional[Any] = None
     message: str
+    violation_type: Optional[str] = Field(
+        None, description="Classifier bucket: auth_dependent | missing_resource | schema_error | validation_error | unknown"
+    )
 
 
 class ExecutionLog(BaseModel):

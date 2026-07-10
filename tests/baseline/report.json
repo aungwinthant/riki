@@ -281,6 +281,7 @@
   "violations": [],
   "retry_map": {},
   "spec_overrides": {},
+  "max_concurrency": 5,
   "reasoning_log": [],
   "error": null
 }

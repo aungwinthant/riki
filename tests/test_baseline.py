@@ -44,7 +44,7 @@ def _normalise_report(report: Dict[str, Any]) -> Dict[str, Any]:
     """Strip runtime-variant fields for deterministic comparison."""
     stripped = {}
     for key, val in report.items():
-        if key in ("start_time", "end_time", "raw_spec", "spec_path", "llm_config"):
+        if key in ("start_time", "end_time", "raw_spec", "spec_path", "llm_config", "backoff_map", "rate_limited_hosts"):
             continue
         if key == "diagnoses" and not val:
             continue
@@ -52,7 +52,7 @@ def _normalise_report(report: Dict[str, Any]) -> Dict[str, Any]:
             stripped[key] = {}
             for ek, ev in val.items():
                 stripped[key][ek] = {
-                    k: v for k, v in ev.items() if k not in ("duration_ms",)
+                    k: v for k, v in ev.items() if k not in ("duration_ms", "response_headers")
                 }
         elif key in ("payloads",):
             stripped[key] = val

@@ -140,6 +140,7 @@ async def execute_request(state: TestState) -> Dict[str, Any]:
         status="EXECUTED",
         request_payload=payload.model_dump(exclude_none=True),
         response_status=status_code,
+        response_headers=headers,
         response_body=body,
         duration_ms=duration,
     )
@@ -346,6 +347,20 @@ def heal_payload(state: TestState) -> Dict[str, Any]:
             except ValueError:
                 vtype = ViolationType.UNKNOWN
 
+    # Rate-limit handling: compute backoff, sleep, reduce effective concurrency
+    merged_backoff = dict(s.backoff_map)
+    merged_rate_hosts = dict(s.rate_limited_hosts)
+    backoff_seconds = 0.0
+    if vtype == ViolationType.RATE_LIMITED:
+        headers = raw_log.get("response_headers", {}) if isinstance(raw_log, dict) else {}
+        default_backoff = _BACKOFF_SECONDS[min(retries - 1, len(_BACKOFF_SECONDS) - 1)]
+        backoff_seconds = _parse_retry_after(headers, default_backoff)
+        if backoff_seconds > 0:
+            time.sleep(backoff_seconds)
+        merged_backoff[current_key] = backoff_seconds
+        host = s.base_url
+        merged_rate_hosts[host] = merged_rate_hosts.get(host, 0) + 1
+
     healed_payload = heal_payload_via_classifier(vtype, payload, first_violation)
 
     merged_payloads = dict(s.payloads)
@@ -353,23 +368,46 @@ def heal_payload(state: TestState) -> Dict[str, Any]:
     merged_retries = dict(s.retry_map)
     merged_retries[current_key] = retries
 
+    merged_log = list(s.reasoning_log)
+    _add_rate_limit_log(merged_log, current_key, vtype, retries, backoff_seconds)
     reasoning_step = {
-        "step": len(s.reasoning_log) + 1,
+        "step": len(merged_log) + 1,
         "endpoint": current_key,
         "action": "healed",
         "observation": f"Violation type: {vtype.value}",
         "decision": "retry" if retries < MAX_RETRIES else "abort",
         "explanation": f"Applied heuristic for {vtype.value} (attempt {retries}/{MAX_RETRIES})",
     }
-    merged_log = list(s.reasoning_log)
     merged_log.append(reasoning_step)
 
     return {
         "payloads": merged_payloads,
         "retry_map": merged_retries,
+        "backoff_map": merged_backoff,
+        "rate_limited_hosts": merged_rate_hosts,
         "current_endpoint": current_key,
         "reasoning_log": merged_log,
     }
+
+
+def _add_rate_limit_log(
+    log: List[Dict[str, Any]],
+    key: str,
+    vtype: ViolationType,
+    retries: int,
+    backoff: float,
+) -> None:
+    if vtype != ViolationType.RATE_LIMITED:
+        return
+    step = {
+        "step": len(log) + 1,
+        "endpoint": key,
+        "action": "rate_limited",
+        "observation": f"Rate limited (429/503+Retry-After)",
+        "decision": "wait" if backoff > 0 else "retry",
+        "explanation": f"Backoff {backoff:.1f}s (attempt {retries}/{MAX_RETRIES})",
+    }
+    log.append(step)
 
 
 def should_retry(state: TestState) -> str:
@@ -457,10 +495,32 @@ def build_graph() -> StateGraph:
     return workflow.compile()
 
 
+_BACKOFF_SECONDS = [1.0, 2.0, 4.0]
+
+
+def _parse_retry_after(headers: Dict[str, str], default: float) -> float:
+    """Parse Retry-After header into seconds. Supports both integer and HTTP-date."""
+    raw = headers.get("retry-after") or headers.get("Retry-After") or ""
+    if not raw:
+        return default
+    try:
+        return float(raw.strip())
+    except ValueError:
+        pass
+    try:
+        from email.utils import parsedate_to_datetime
+        then = parsedate_to_datetime(raw.strip())
+        now = time.time()
+        return max(0.0, then.timestamp() - now)
+    except Exception:
+        return default
+
+
 def _should_heal(violations: List[ContractViolation]) -> bool:
     return any(v.violation_type in (
         ViolationType.SCHEMA_ERROR.value,
         ViolationType.VALIDATION_ERROR.value,
+        ViolationType.RATE_LIMITED.value,
     ) for v in violations)
 
 

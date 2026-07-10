@@ -11,6 +11,7 @@ class ViolationType(str, Enum):
     MISSING_RESOURCE = "missing_resource"
     SCHEMA_ERROR = "schema_error"
     VALIDATION_ERROR = "validation_error"
+    RATE_LIMITED = "rate_limited"
     UNKNOWN = "unknown"
 
 
@@ -37,6 +38,14 @@ def classify(
     if status == 404:
         return ViolationType.MISSING_RESOURCE
 
+    # 429 → rate limited
+    if status == 429:
+        return ViolationType.RATE_LIMITED
+
+    # 503 with Retry-After header → rate limited (not transient server error)
+    if status == 503 and _has_retry_after(log):
+        return ViolationType.RATE_LIMITED
+
     # 200/201 with schema violation → response shape mismatch
     if status in (200, 201) and _is_schema_violation(violation):
         return ViolationType.SCHEMA_ERROR
@@ -61,3 +70,10 @@ def _is_schema_violation(violation: ContractViolation) -> bool:
     keywords = ["type", "property", "required", "additional properties", 
                  "schema", "validation", "is not", "expected"]
     return any(k in msg for k in keywords)
+
+
+def _has_retry_after(log: ExecutionLog) -> bool:
+    """Check if response headers contain a Retry-After header."""
+    headers = getattr(log, "response_headers", {}) or {}
+    val = headers.get("retry-after") or headers.get("Retry-After") or ""
+    return bool(val)

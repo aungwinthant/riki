@@ -53,6 +53,7 @@ class ExecutionLog(BaseModel):
     status: str  # PASS | FAIL | SKIP | ERROR
     request_payload: Optional[Dict[str, Any]] = None
     response_status: Optional[int] = None
+    response_headers: Dict[str, str] = Field(default_factory=dict)
     response_body: Optional[Any] = None
     violations: List[ContractViolation] = Field(default_factory=list)
     retry_count: int = 0
@@ -93,6 +94,15 @@ class TestState(BaseModel):
         default_factory=dict,
         description="Runtime spec patches from response introspection (e.g. object→array)",
     )
+    max_concurrency: int = 5
+    rate_limited_hosts: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Per-host rate-limit counter; decrements effective concurrency",
+    )
+    backoff_map: Dict[str, float] = Field(
+        default_factory=dict,
+        description="Computed backoff seconds per endpoint key",
+    )
     diagnoses: List[Diagnosis] = Field(
         default_factory=list,
         description="Diagnostician outputs for UNKNOWN violations",
@@ -114,6 +124,7 @@ class AuthScheme(BaseModel):
     key: Optional[str] = None
     key_in: str = "header"
     key_name: str = "X-API-Key"
+    query_param_auth: bool = False
 
     def to_headers(self) -> Dict[str, str]:
         headers: Dict[str, str] = {}

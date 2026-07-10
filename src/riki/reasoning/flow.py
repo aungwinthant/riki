@@ -12,9 +12,12 @@ def find_auth_flow(
 ) -> Optional[str]:
     """Find a login/auth endpoint that can be used for token extraction.
 
-    Scans endpoints for a POST endpoint matching login/auth/token in path.
+    Scans endpoints for:
+    1. POST endpoint with path matching login/auth/token/signin, OR
+    2. POST/GET endpoint with query params named ``username`` / ``password``.
+
     Returns the endpoint key (method:path) if found and the user has
-    provided basic credentials to authenticate with.
+    provided credentials to authenticate with.
     """
     has_basic = any(s.type == "basic" and s.username and s.password for s in auth)
     if not has_basic:
@@ -27,6 +30,12 @@ def find_auth_flow(
         if re.search(r"(login|auth|token|signin)", path_lower):
             return f"{ep.method.value}:{ep.path}"
 
+    # Fallback: scan for endpoints with username/password query params
+    for ep in endpoints:
+        path_lower = ep.path.lower()
+        if re.search(r"\b(username|password|credential)\b", path_lower):
+            return f"{ep.method.value}:{ep.path}"
+
     return None
 
 
@@ -35,18 +44,32 @@ def execute_auth_flow(
     endpoint_key: str,
     basic_auth: AuthScheme,
 ) -> Optional[Dict[str, Any]]:
-    """Execute a login request with basic auth and extract the token response."""
+    """Execute a login request and extract the token response.
+
+    Supports two modes:
+    - ``query_param_auth=False`` (default): sends Basic auth header.
+    - ``query_param_auth=True``: sends ``{"username": ..., "password": ...}``
+      as JSON body and does NOT send a Basic auth header.
+    """
     import asyncio
 
     from riki.tools import execute_http_request
     from riki.models import PayloadTemplate
 
     method, path = endpoint_key.split(":", 1)
-    payload = PayloadTemplate(body=None, query=None, path_params=None)
+
+    if basic_auth.query_param_auth:
+        body = {"username": basic_auth.username, "password": basic_auth.password}
+        auth_arg: List[AuthScheme] = []
+    else:
+        body = None
+        auth_arg = [basic_auth]
+
+    payload = PayloadTemplate(body=body, query=None, path_params=None)
 
     try:
         status, headers, body = asyncio.run(
-            execute_http_request(base_url, method, path, payload, {}, auth=[basic_auth])
+            execute_http_request(base_url, method, path, payload, {}, auth=auth_arg)
         )
     except Exception:
         return None

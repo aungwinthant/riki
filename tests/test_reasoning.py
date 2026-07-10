@@ -28,6 +28,7 @@ def _log(
     body: Any = None,
     method: str = "GET",
     endpoint: str = "/pets",
+    headers: Dict[str, str] | None = None,
 ) -> ExecutionLog:
     return ExecutionLog(
         endpoint=endpoint,
@@ -35,6 +36,7 @@ def _log(
         status="EXECUTED",
         response_status=status,
         response_body=body,
+        response_headers=headers or {},
     )
 
 
@@ -92,6 +94,19 @@ class TestClassifier:
         assert classify(_log(500), v, endpoints) == ViolationType.UNKNOWN
 
     def test_503_is_unknown(self, endpoints):
+        v = _violation("Service Unavailable", actual=503)
+        assert classify(_log(503), v, endpoints) == ViolationType.UNKNOWN
+
+    def test_429_is_rate_limited(self, endpoints):
+        v = _violation("Too Many Requests", actual=429)
+        assert classify(_log(429), v, endpoints) == ViolationType.RATE_LIMITED
+
+    def test_503_with_retry_after_is_rate_limited(self, endpoints):
+        v = _violation("Service Unavailable", actual=503)
+        log = _log(503, headers={"Retry-After": "5"})
+        assert classify(log, v, endpoints) == ViolationType.RATE_LIMITED
+
+    def test_503_without_retry_after_is_still_unknown(self, endpoints):
         v = _violation("Service Unavailable", actual=503)
         assert classify(_log(503), v, endpoints) == ViolationType.UNKNOWN
 
@@ -195,6 +210,12 @@ class TestHealer:
         from riki.models import PayloadTemplate
         p = PayloadTemplate(body={"name": "test"})
         result = heal(ViolationType.SCHEMA_ERROR, p, None)
+        assert result.body == p.body
+
+    def test_rate_limited_returns_payload_unchanged(self):
+        from riki.models import PayloadTemplate
+        p = PayloadTemplate(body={"name": "test"})
+        result = heal(ViolationType.RATE_LIMITED, p, None)
         assert result.body == p.body
 
 
